@@ -18,6 +18,15 @@ on:
       - '.github/workflows/pvlibrary-tests.yml'
   workflow_call:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Where to run PVLibrary tests"
+        required: true
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted-mac
+        default: github-hosted
 
 # A newer push to develop (or a newer commit on the same PR) supersedes an
 # in-flight run. Distinct from agent-validation's group, so the call can't
@@ -29,7 +38,9 @@ concurrency:
 jobs:
   test:
     name: PVLibrary Tests (iOS Simulator)
-    runs-on: macos-26
+    # Keep automated push/workflow_call runs on GitHub-hosted Macs. Only an
+    # explicit manual dispatch can route a job to the registered Mac runner.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted-mac' && fromJSON('["self-hosted", "macOS"]') || 'macos-26' }}
     timeout-minutes: 60
     steps:
       - name: Checkout

@@ -27,6 +27,7 @@ struct LibraryStorageView: View {
                 VStack(spacing: 24) {
                     headerView
                     currentLocationCard
+                    ExternalROMLibrarySettingsSection()
                     if model.launchState.isUnavailable { recoveryCard }
                     chooseLocationCard
                     if model.location == .pickedFolder { rescanCard }

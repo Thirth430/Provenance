@@ -698,6 +698,9 @@ public extension Defaults.Keys {
     /// JSON of `PickedLibraryFolder` (PVFileSystem): the security-scoped bookmark of the folder the user chose,
     /// its display name and whether saves live there too. Only `LibraryLocation.switchStored` writes it.
     static let libraryPickedFolder = Key<Data?>("libraryPickedFolder")
+
+    /// JSON of `ExternalROMFolder` (PVFileSystem): a bookmark to a ROM folder that stays in place.
+    static let externalROMFolder = Key<Data?>("externalROMFolder")
 }
 
 // MARK: Web Server

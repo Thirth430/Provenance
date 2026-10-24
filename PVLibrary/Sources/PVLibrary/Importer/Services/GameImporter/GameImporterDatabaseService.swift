@@ -36,6 +36,10 @@ public protocol GameImporterDatabaseServicing {
     func importBIOSIntoDatabase(queueItem: ImportQueueItem) async throws
     func getUpdatedGameInfo(for game: GameType, forceRefresh: Bool) async throws -> GameType
     func getArtwork(forGame game: GameType) async -> GameType
+    /// Adds an external ROM to Provenance's game database without copying the ROM file.
+    func indexExternalGame(_ candidate: ExternalROMCandidate,
+                           systemID: SystemIdentifier,
+                           progress: Progress?) async throws -> Bool
 }
 
 extension CharacterSet {
@@ -65,6 +69,71 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
 
     func setRomsPath(url: URL) {
         romsPath = url
+    }
+
+    /// Indexes one file already present under the selected external ROM folder.
+    /// Returns `false` when the same game identity is already in the database.
+    func indexExternalGame(_ candidate: ExternalROMCandidate,
+                           systemID: SystemIdentifier,
+                           progress: Progress? = nil) async throws -> Bool {
+        // Keep the folder permission active through the MD5 read and metadata setup.
+        let access = try ExternalROMFolderAccessManager().openSavedFolder()
+        defer { withExtendedLifetime(access) {} }
+
+        guard candidate.systemIdentifiers.contains(systemID.rawValue) else {
+            throw GameImporterError.noSystemMatched
+        }
+        guard let partialPath = ExternalROMPath.partialPath(forRelativePath: candidate.relativePath) else {
+            throw ExternalROMFolderError.unavailable("The scanned game has an invalid relative path.")
+        }
+        let sourceURL = access.url.appendingPathComponent(candidate.relativePath).standardizedFileURL
+        guard sourceURL == candidate.url.standardizedFileURL else {
+            throw ExternalROMFolderError.unavailable("The game is no longer at its scanned location.")
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            throw ExternalROMFolderError.unavailable(sourceURL.path)
+        }
+
+        // Provenance's game identity is the full-file MD5. Do this once, and use it for both
+        // Realm deduplication and PVFile's cached hash so library rendering never re-hashes it.
+        var contentMD5: String?
+        let hashEvents = FileManager.default.md5StreamForFile(at: sourceURL, fromOffset: 0)
+        for try await event in hashEvents {
+            if Task.isCancelled || progress?.isCancelled == true { throw CancellationError() }
+            if case .completed(let hash) = event { contentMD5 = hash }
+        }
+        guard let md5 = contentMD5?.uppercased() else { throw GameImporterError.couldNotCalculateMD5 }
+        let alreadyIndexed = try await RealmContext.withBackgroundRealm { realm in
+            realm.object(ofType: PVGame.self, forPrimaryKey: md5) != nil
+        }
+        guard !alreadyIndexed, RomDatabase.gamesCache[partialPath] == nil else { return false }
+
+        let titleFromFilename = PVEmulatorConfiguration.stripDiscNames(
+            fromFilename: sourceURL.deletingPathExtension().lastPathComponent
+        )
+        let title = Defaults[.autoNormalizeROMTitles]
+            ? titleFromFilename.normalizedROMTitle()
+            : titleFromFilename
+        let fileSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? Int(clamping: candidate.fileSize)
+
+        let game = PVGame()
+        game.file = PVFile(withPartialPath: partialPath,
+                           relativeRoot: .platformDefault,
+                           size: fileSize,
+                           md5: md5)
+        game.systemIdentifier = systemID.rawValue
+        game.romPath = partialPath
+        game.title = title
+        game.md5Hash = md5
+        game.fileSize = fileSize
+        game.isDownloaded = true
+        // External ROMs are never uploaded by CloudKit as if they were app-managed files.
+        game.requiresSync = false
+
+        // Reuse Provenance's existing Realm/SwiftData save, metadata and artwork handling.
+        try await finishUpdateOrImport(ofGame: game, lookupMetadata: true)
+        return true
     }
 
 //    @MainActor
@@ -437,7 +506,9 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
 
     /// Finishes the update or import of a game. `indexFileMD5` is an extra metadata key for a
     /// game imported from a cue, gdi or m3u (see `metadataLookupMD5s`); it is never stored.
-    internal func finishUpdateOrImport(ofGame game: PVGame, indexFileMD5: String? = nil) async throws {
+    internal func finishUpdateOrImport(ofGame game: PVGame,
+                                       indexFileMD5: String? = nil,
+                                       lookupMetadata: Bool = false) async throws {
         DLOG("finishUpdateOrImport: Starting for game: \(game.romPath)")
 
         // Only process if rom doesn't exist in DB
@@ -450,7 +521,7 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
         var game:PVGame = game
 
         /// Defer slow metadata lookup to background task - don't block import
-        if game.requiresSync {
+        if game.requiresSync || lookupMetadata {
             DLOG("finishUpdateOrImport: Deferring getUpdatedGameInfo to background task for: \(game.romPath)")
             let gameID = game.id
             let lookupService = self.lookup

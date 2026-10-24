@@ -285,15 +285,60 @@ public extension PVEmulatorConfiguration {
 
 public extension PVEmulatorConfiguration {
     class func batterySavesPath(forGame game: PVGame) -> URL {
+        if let directory = externalGameDataDirectory(forPartialPath: game.romPath,
+                                                     md5: game.md5Hash,
+                                                     systemIdentifier: game.systemIdentifier,
+                                                     under: Paths.batterySavesPath) {
+            createExternalGameDataDirectory(directory)
+            return directory
+        }
         return Paths.batterySavesPath(forROM: game.url)
     }
 
     class func saveStatePath(forGame game: PVGame)  -> URL {
+        if let directory = externalGameDataDirectory(forPartialPath: game.romPath,
+                                                     md5: game.md5Hash,
+                                                     systemIdentifier: game.systemIdentifier,
+                                                     under: Paths.saveSavesPath) {
+            createExternalGameDataDirectory(directory)
+            return directory
+        }
         return Paths.saveStatePath(forROM: game.url)
     }
 
     class func cheatsPath(forGame game: PVGame) -> URL {
+        if let directory = externalGameDataDirectory(forPartialPath: game.romPath,
+                                                     md5: game.md5Hash,
+                                                     systemIdentifier: game.systemIdentifier,
+                                                     under: Paths.cheatsPath) {
+            createExternalGameDataDirectory(directory)
+            return directory
+        }
         return Paths.cheatsPath(forROM: game.url)
+    }
+
+    /// Gives external ROM saves an app-managed directory tied to content identity, not a possibly
+    /// repeated filename. Returning nil preserves the existing path rules for imported games.
+    static func externalGameDataDirectory(forPartialPath partialPath: String,
+                                          md5: String,
+                                          systemIdentifier: String,
+                                          under root: URL) -> URL? {
+        guard ExternalROMPath.relativePath(fromPartialPath: partialPath) != nil,
+              !systemIdentifier.isEmpty else { return nil }
+
+        let identity = md5.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !identity.isEmpty else { return nil }
+        return root.appendingPathComponent("ExternalROMs", isDirectory: true)
+            .appendingPathComponent(systemIdentifier, isDirectory: true)
+            .appendingPathComponent(identity, isDirectory: true)
+    }
+
+    private class func createExternalGameDataDirectory(_ directory: URL) {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            ELOG("Failed creating external game data directory at \(directory.path): \(error.localizedDescription)")
+        }
     }
 
     class func screenshotsPath(forGame game: PVGame) -> URL {

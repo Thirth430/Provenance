@@ -198,6 +198,9 @@ struct ConsolesWrapperView: SwiftUI.View {
             // RetroWave styled alert overlay
             RetroAlertStateView(alertState: SceneCoordinator.shared.alertState)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ExternalROMAvailabilityBanner()
+        }
         .environment(\.rootDelegate, rootDelegate)
         .onAppear {
             isVisible = true

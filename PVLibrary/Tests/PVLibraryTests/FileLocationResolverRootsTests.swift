@@ -31,10 +31,13 @@ final class FileLocationResolverRootsTests: XCTestCase {
         LibraryMoveTestSupport.removeTree(base)
     }
 
-    private func resolver(driveMode: Bool = false, library: URL? = nil, saves: URL? = nil) -> FileLocationResolver {
+    private func resolver(driveMode: Bool = false,
+                          library: URL? = nil,
+                          saves: URL? = nil,
+                          external: URL? = nil) -> FileLocationResolver {
         let local = self.local, lib = library ?? self.library, sav = saves ?? self.saves, cloud = self.cloud
         return FileLocationResolver(localBase: { local }, libraryRoot: { lib }, savesRoot: { sav },
-                                    iCloudBase: { cloud }, iCloudDriveMode: { driveMode })
+                                    iCloudBase: { cloud }, iCloudDriveMode: { driveMode }, externalROMRoot: { external })
     }
 
     func testSharedPathsResolveInTheLibraryRoot() throws {
@@ -106,5 +109,25 @@ final class FileLocationResolverRootsTests: XCTestCase {
         try LibraryMoveTestSupport.write(library, "ROMs/com.provenance.snes/Game (USA).sfc", "rom")
         let found = resolver().resolveByFilename(under: "com.provenance.snes", filename: "game (usa).SFC")
         XCTAssertEqual(found.url, library.appendingPathComponent("ROMs/com.provenance.snes/Game (USA).sfc"))
+    }
+
+    func testExternalROMPathResolvesOnlyAgainstExternalRoot() throws {
+        try LibraryMoveTestSupport.write(library, "Nested/Game.sfc", "wrong copy")
+        try LibraryMoveTestSupport.write(cloud, "Nested/Game.sfc", "wrong cloud copy")
+        let external = base.appendingPathComponent("usb", isDirectory: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        try LibraryMoveTestSupport.write(external, "Nested/Game.sfc", "external")
+        let partialPath = try XCTUnwrap(ExternalROMPath.partialPath(forRelativePath: "Nested/Game.sfc"))
+
+        XCTAssertEqual(resolver(external: external).resolve(partialPath), .external(external.appendingPathComponent("Nested/Game.sfc")))
+        XCTAssertTrue(resolver(external: external).resolve(partialPath).isLocal)
+        XCTAssertEqual(resolver().resolve(partialPath), .notFound)
+        XCTAssertFalse(resolver().bestURL(for: partialPath).path.contains("Documents"))
+    }
+
+    func testExternalPathEncodingRejectsTraversalAndAbsolutePaths() {
+        XCTAssertNil(ExternalROMPath.partialPath(forRelativePath: "../outside.rom"))
+        XCTAssertNil(ExternalROMPath.partialPath(forRelativePath: "/outside.rom"))
+        XCTAssertEqual(ExternalROMPath.partialPath(forRelativePath: "Console/Game.rom"), "ExternalROMs/Console/Game.rom")
     }
 }

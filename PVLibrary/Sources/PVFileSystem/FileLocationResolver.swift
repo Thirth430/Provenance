@@ -23,13 +23,15 @@ public enum FileResolution: Sendable, Equatable {
     case local(URL)
     /// File exists in the iCloud Drive container.
     case cloudDrive(URL)
+    /// File exists in the selected external ROM folder.
+    case external(URL)
     /// File was not found at any known location.
     case notFound
 
     /// The resolved URL, or `nil` if `.notFound`.
     public var url: URL? {
         switch self {
-        case .local(let u), .cloudDrive(let u): return u
+        case .local(let u), .cloudDrive(let u), .external(let u): return u
         case .notFound: return nil
         }
     }
@@ -37,6 +39,7 @@ public enum FileResolution: Sendable, Equatable {
     /// `true` when the file is available locally (no download needed).
     public var isLocal: Bool {
         if case .local = self { return true }
+        if case .external = self { return true }
         return false
     }
 }
@@ -68,6 +71,7 @@ public final class FileLocationResolver: @unchecked Sendable {
     private let savesRootProvider: @Sendable () -> URL
     private let iCloudBase: @Sendable () -> URL?
     private let iCloudDriveMode: @Sendable () -> Bool
+    private let externalROMRoot: @Sendable () -> URL?
 
     /// Production roots: the app-files root, `LibraryLocation.current`'s two roots, the ubiquity Documents folder.
     private convenience init() {
@@ -83,12 +87,14 @@ public final class FileLocationResolver: @unchecked Sendable {
          libraryRoot: @escaping @Sendable () -> URL,
          savesRoot: @escaping @Sendable () -> URL,
          iCloudBase: @escaping @Sendable () -> URL?,
-         iCloudDriveMode: @escaping @Sendable () -> Bool) {
+         iCloudDriveMode: @escaping @Sendable () -> Bool,
+         externalROMRoot: @escaping @Sendable () -> URL? = { ExternalROMFolderRootAccess.shared.rootURL() }) {
         self.localBase = localBase
         self.libraryRootProvider = libraryRoot
         self.savesRootProvider = savesRoot
         self.iCloudBase = iCloudBase
         self.iCloudDriveMode = iCloudDriveMode
+        self.externalROMRoot = externalROMRoot
     }
 
     private static var platformLocalBase: URL {
@@ -165,6 +171,11 @@ public final class FileLocationResolver: @unchecked Sendable {
     /// - Returns: A ``FileResolution`` indicating where the file was found.
     public func resolve(_ partialPath: String) -> FileResolution {
         let fm = FileManager.default
+        if let externalRelativePath = ExternalROMPath.relativePath(fromPartialPath: partialPath),
+           let externalRoot = externalROMRoot() {
+            let externalURL = externalRoot.appendingPathComponent(externalRelativePath)
+            return fm.fileExists(atPath: externalURL.path) ? .external(externalURL) : .notFound
+        }
         for base in searchBases(for: partialPath) {
             let url = base.url.appendingPathComponent(partialPath)
             if fm.fileExists(atPath: url.path) {
@@ -181,9 +192,14 @@ public final class FileLocationResolver: @unchecked Sendable {
     /// non-nil URL (e.g. for download destinations or display purposes).
     public func bestURL(for partialPath: String) -> URL {
         switch resolve(partialPath) {
-        case .local(let url), .cloudDrive(let url):
+        case .local(let url), .cloudDrive(let url), .external(let url):
             return url
         case .notFound:
+            if let externalRelativePath = ExternalROMPath.relativePath(fromPartialPath: partialPath) {
+                let root = externalROMRoot()
+                    ?? URL(fileURLWithPath: "/__provenance_external_library_unavailable__", isDirectory: true)
+                return root.appendingPathComponent(externalRelativePath)
+            }
             // Return expected local URL for download destinations
             return expectedLocalURL(for: partialPath)
         }
@@ -277,6 +293,10 @@ public final class FileLocationResolver: @unchecked Sendable {
     /// base locations. Tolerates the `/var` ↔ `/private/var` symlink that
     /// iOS uses for the sandbox.
     public func relativePath(for url: URL) -> String? {
+        if let root = externalROMRoot(),
+           let externalRelativePath = stripPrefix(url: url, base: root) {
+            return ExternalROMPath.partialPath(forRelativePath: externalRelativePath)
+        }
         for base in allBases {
             if let stripped = stripPrefix(url: url, base: base.url) { return stripped }
         }

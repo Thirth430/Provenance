@@ -50,15 +50,19 @@ jobs:
           fetch-depth: 1
 
       - name: Select and verify Xcode
-        env:
-          DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
         run: |
-          if [ ! -d "$DEVELOPER_DIR" ]; then
-            echo "::error::Xcode 26.3 was not found at /Applications/Xcode_26.3.app"
+          developer_dir="$(xcode-select -p)"
+          if [ ! -d "$developer_dir" ]; then
+            echo "::error::The runner's selected Xcode directory is missing: $developer_dir"
             exit 1
           fi
-          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$developer_dir"
           xcodebuild -version
+          if ! xcrun simctl list runtimes | grep -q 'iOS'; then
+            echo "::error::The selected Xcode has no installed iOS Simulator runtime"
+            exit 1
+          fi
 
       # Transitive `.package(path:)` / target-path submodules of PVLibrary's local
       # deps (the same set pvui-test needs, since PVUI depends on PVLibrary).

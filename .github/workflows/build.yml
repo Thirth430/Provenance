@@ -644,6 +644,11 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "::notice::DISCORD_WEBHOOK is not configured; skipping the optional notification."
+            exit 0
+          fi
+
           if [ "${{ job.status }}" = "success" ]; then
             STATUS_COLOR="65280"
             STATUS="✅ Success"
@@ -652,8 +657,9 @@ jobs:
             STATUS="❌ Failed"
           fi
 
-          curl -H "Content-Type: application/json" -X POST $DISCORD_WEBHOOK \
-          -d '{
+          if ! curl --fail --silent --show-error \
+          -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK" \
+          --data-binary '{
             "embeds": [{
               "title": "Build ${{ matrix.target }}",
               "description": "Version ${{ env.MARKETING_VERSION }} (Build ${{ env.BUILD_NUMBER }})\nScheme: ${{ matrix.scheme }}\nBuild Duration: ${{ steps.build.outputs.duration }}s",
@@ -662,7 +668,9 @@ jobs:
                 "text": "'"$STATUS"'"
               }
             }]
-          }'
+          }'; then
+            echo "::warning::Discord notification failed; this does not change the build result."
+          fi
 
       - name: Cleanup
         if: always()

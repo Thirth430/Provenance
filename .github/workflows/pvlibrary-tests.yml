@@ -49,8 +49,16 @@ jobs:
           submodules: false
           fetch-depth: 1
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select and verify Xcode
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+        run: |
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            echo "::error::Xcode 26.3 was not found at /Applications/Xcode_26.3.app"
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
 
       # Transitive `.package(path:)` / target-path submodules of PVLibrary's local
       # deps (the same set pvui-test needs, since PVUI depends on PVLibrary).

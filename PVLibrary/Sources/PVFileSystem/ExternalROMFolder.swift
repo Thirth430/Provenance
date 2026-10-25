@@ -163,6 +163,13 @@ public struct ExternalROMFolderAccessManager {
                           relativeTo: nil,
                           bookmarkDataIsStale: &isStale)
         } catch {
+            // On Apple platforms, resolving a bookmark to a folder on a removed
+            // drive can fail before we get a URL to check with fileExists. Keep
+            // this distinct from a malformed or revoked bookmark so the library
+            // can report the selected folder as temporarily unavailable.
+            if Self.isMissingResource(error) {
+                throw ExternalROMFolderError.unavailable(folder.displayName)
+            }
             throw ExternalROMFolderError.invalidBookmark(error.localizedDescription)
         }
 
@@ -186,6 +193,18 @@ public struct ExternalROMFolderAccessManager {
             try? store.save(refreshed)
         }
         return ExternalROMFolderAccess(url: url.standardizedFileURL, startedSecurityScope: started)
+    }
+
+    private static func isMissingResource(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if (nsError.domain == NSCocoaErrorDomain && [4, 260].contains(nsError.code)) ||
+            (nsError.domain == NSPOSIXErrorDomain && nsError.code == 2) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isMissingResource(underlying)
+        }
+        return false
     }
 }
 

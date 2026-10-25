@@ -31,7 +31,7 @@ struct PremiumNavigationLink<Label: View, Destination: View>: View {
                         HStack(spacing: 3) {
                             Image(systemName: "lock.fill")
                                 .font(.system(size: 10, weight: .semibold))
-                            Text("PLUS")
+                            Text("LOCKED")
                                 .font(.system(size: 9, weight: .heavy))
                         }
                         .foregroundStyle(

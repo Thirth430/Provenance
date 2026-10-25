@@ -38,7 +38,7 @@ public struct SupportNagManager {
         launchCount += 1
         Defaults[.gameLaunchCount] = launchCount
 
-        // Don't show nag if user already has Provenance Plus (incl. via iFly Pro)
+        // Don't show nag if the user already has an active paid entitlement (incl. via iFly Pro)
         #if canImport(FreemiumKit)
         if PlusEntitlement.isUnlocked {
             return false

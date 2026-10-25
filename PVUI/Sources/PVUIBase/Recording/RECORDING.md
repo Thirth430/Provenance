@@ -2,7 +2,7 @@
 
 ## Overview
 
-Provenance supports ReplayKit screen recording on iOS, gated behind **Provenance Plus** via `FreemiumKit`.
+Provenance supports ReplayKit screen recording on iOS, gated behind the app's paid entitlement via `FreemiumKit`.
 The feature is iOS-only (`#if os(iOS)`); tvOS is excluded as ReplayKit recording has platform limitations.
 
 ## Components

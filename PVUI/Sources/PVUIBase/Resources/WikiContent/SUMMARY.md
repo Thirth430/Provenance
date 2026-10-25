@@ -44,7 +44,6 @@
 * [Performance Optimization](info/performance-optimization.md)
 * [Apple TV / tvOS Guide](info/tvos-guide.md)
 * [iPad Features](info/ipad-features.md)
-* [Provenance Plus](info/provenance-plus.md)
 
 ## Advanced
 

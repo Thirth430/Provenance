@@ -6058,9 +6058,9 @@ struct TVMediaROMInstructionsView: View {
 
     private var platformCloudKitDescription: String {
         #if os(tvOS)
-        return "Add ROMs on one device and they automatically sync to all your Apple devices signed into the same iCloud account. iCloud sync is included free on Apple TV. On iOS, Provenance Plus is required."
+        return "Add ROMs on one device and they automatically sync to your Apple devices signed into the same iCloud account. Cloud sync is included on Apple TV; an active subscription is required on iPhone and iPad."
         #else
-        return "Add ROMs on one device and they automatically sync to all your Apple devices signed into the same iCloud account. Requires Provenance Plus on iOS. Included free on Apple TV."
+        return "Add ROMs on one device and they automatically sync to your Apple devices signed into the same iCloud account. Cloud sync is included on Apple TV; an active subscription is required on iPhone and iPad."
         #endif
     }
 

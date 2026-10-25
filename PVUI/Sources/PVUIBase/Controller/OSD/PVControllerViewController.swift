@@ -2131,11 +2131,11 @@ open class PVControllerViewController<T: ResponderClient> : UIViewController, Co
         // Non-AppStore builds (dev / TestFlight / sideloaded) are treated as premium.
         if AppState.shared.isAppStore {
             guard PlusEntitlement.isUnlocked else {
-                // Recording is a Plus feature; direct the user to the pause menu where
+                // Recording requires a paid entitlement; direct the user to the pause menu where
                 // the paywall is presented via PaidFeatureView.
                 let alert = UIAlertController(
-                    title: "Provenance Plus Required",
-                    message: "Gameplay recording is a Provenance Plus feature. Open the pause menu to upgrade.",
+                    title: "Subscription Required",
+                    message: "Gameplay recording requires an active subscription. Open the pause menu for details.",
                     preferredStyle: .alert
                 )
                 alert.addAction(UIAlertAction(title: "OK", style: .default))

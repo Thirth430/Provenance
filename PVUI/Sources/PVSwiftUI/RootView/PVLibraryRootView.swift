@@ -37,9 +37,12 @@ struct PVLibraryRootView: View {
                 .environmentObject(FreemiumKit.shared)
                 #endif
             }
-            .confirmationDialog("Select Import Source", isPresented: $navigation.showsImportSources, titleVisibility: .visible) {
+            .confirmationDialog("Add Games", isPresented: $navigation.showsImportSources, titleVisibility: .visible) {
                 #if !os(tvOS)
                 Button("Cloud & Local Files") { navigation.showsFileImporter = true }
+                #endif
+                #if os(iOS)
+                Button("Use External Folder in Place") { navigation.sheet = .externalROMFolder }
                 #endif
                 #if canImport(PVWebServer)
                 Button("Web Server") { startWebServer() }
@@ -126,6 +129,13 @@ struct PVLibraryRootView: View {
             ImportStatusView(updatesController: navigation.updatesController, gameImporter: navigation.gameImporter, delegate: navigation) {
                 navigation.dismissAction()
             }
+        case .externalROMFolder:
+            #if os(iOS)
+            ExternalROMLibrarySettingsSection()
+                .navigationTitle("External ROM Folder")
+            #else
+            Text("External folders are available on iPhone and iPad.")
+            #endif
         case .freeROMs:
             FreeROMsView(onROMDownloaded: { _, url in
                 navigation.updatesController.handlePickedDocuments([url])

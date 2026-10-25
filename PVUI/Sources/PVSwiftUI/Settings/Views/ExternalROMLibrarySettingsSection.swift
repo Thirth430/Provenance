@@ -27,7 +27,7 @@ struct ExternalROMLibrarySettingsSection: View {
                 .foregroundStyle(LinearGradient(gradient: Gradient(colors: [.retroBlue, .retroPurple]),
                                                 startPoint: .leading, endPoint: .trailing))
 
-            Text("Use a folder from Files in place. ROMs stay on the USB drive or microSD card; Provenance keeps saves and save states in its app storage.")
+            Text("Use a folder from Files in place. ROMs stay on the USB drive or microSD card. Matched covers and metadata, saves, and save states stay in Provenance's app library; source files are left unchanged.")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
 

@@ -19,7 +19,7 @@ import PVAppIntents
 @MainActor
 final class PVLibraryNavigation: ObservableObject, PVMenuDelegate, PVRootDelegate, ImportStatusDelegate {
     enum Sheet: String, Identifiable {
-        case settings, imports, freeROMs, saves, corePicker
+        case settings, imports, externalROMFolder, freeROMs, saves, corePicker
         var id: String { rawValue }
     }
 

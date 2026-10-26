@@ -16,7 +16,7 @@ import PVUIBase
 
 /// Controls the optional, in-place ROM folder. The normal import queue remains the copy-import path.
 struct ExternalROMLibrarySettingsSection: View {
-    @State private var model = ExternalROMLibrarySettingsModel()
+    @State private var model = ExternalROMLibrarySettingsModel.shared
     @State private var showsFolderPicker = false
     @State private var showsReport = false
 
@@ -120,6 +120,8 @@ struct ExternalROMLibrarySettingsSection: View {
 @MainActor
 @Observable
 private final class ExternalROMLibrarySettingsModel {
+    static let shared = ExternalROMLibrarySettingsModel()
+
     private(set) var folderName = ExternalROMFolderStore.shared.load()?.displayName
     private(set) var isBusy = false
     private(set) var progressMessage = "Preparing…"
@@ -129,6 +131,7 @@ private final class ExternalROMLibrarySettingsModel {
     private(set) var errorMessage: String?
     private var currentIndexNumber = 0
     private var totalIndexCount = 0
+    private var currentIndexRelativePath: String?
 
     private var scanTask: Task<Void, Never>?
     private var scanProgress: Progress?
@@ -210,7 +213,8 @@ private final class ExternalROMLibrarySettingsModel {
                                                                            onCandidateStarted: { candidate, current, total in
                     let size = ByteCountFormatter.string(fromByteCount: candidate.fileSize, countStyle: .file)
                     Task { @MainActor [weak self] in
-                        self?.updateCurrentIndexProgress(fileName: candidate.url.lastPathComponent,
+                        self?.updateCurrentIndexProgress(relativePath: candidate.relativePath,
+                                                         fileName: candidate.url.lastPathComponent,
                                                          size: size,
                                                          current: current,
                                                          total: total)
@@ -218,7 +222,8 @@ private final class ExternalROMLibrarySettingsModel {
                 },
                                                                            onHashProgress: { candidate, bytesProcessed, totalBytes in
                     Task { @MainActor [weak self] in
-                        self?.updateHashProgress(fileName: candidate.url.lastPathComponent,
+                        self?.updateHashProgress(relativePath: candidate.relativePath,
+                                                 fileName: candidate.url.lastPathComponent,
                                                  bytesProcessed: bytesProcessed,
                                                  totalBytes: totalBytes)
                     }
@@ -253,22 +258,33 @@ private final class ExternalROMLibrarySettingsModel {
         progressFraction = total == 0 ? 1 : Double(done) / Double(total)
     }
 
-    private func updateCurrentIndexProgress(fileName: String, size: String, current: Int, total: Int) {
+    private func updateCurrentIndexProgress(relativePath: String,
+                                            fileName: String,
+                                            size: String,
+                                            current: Int,
+                                            total: Int) {
         currentIndexNumber = current
         totalIndexCount = total
+        currentIndexRelativePath = relativePath
         progressMessage = "Preparing game \(current) of \(total): \(fileName) (\(size))…"
-        progressFraction = total == 0 ? 1 : Double(current - 1) / Double(total)
+        let fraction = total == 0 ? 1 : Double(current - 1) / Double(total)
+        progressFraction = max(progressFraction ?? 0, fraction)
     }
 
-    private func updateHashProgress(fileName: String, bytesProcessed: Int64, totalBytes: Int64) {
+    private func updateHashProgress(relativePath: String,
+                                    fileName: String,
+                                    bytesProcessed: Int64,
+                                    totalBytes: Int64) {
+        guard currentIndexRelativePath == relativePath else { return }
         let percent = min(100, Int((Double(bytesProcessed) / Double(max(1, totalBytes))) * 100))
         let processed = ByteCountFormatter.string(fromByteCount: bytesProcessed, countStyle: .file)
         let total = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
         progressMessage = "Checking \(fileName) for duplicates… \(percent)% (\(processed) of \(total))"
         if totalIndexCount > 0, currentIndexNumber > 0 {
-            progressFraction = min(1,
-                                   (Double(currentIndexNumber - 1) + Double(percent) / 100)
-                                    / Double(totalIndexCount))
+            let fraction = min(1,
+                               (Double(currentIndexNumber - 1) + Double(percent) / 100)
+                                / Double(totalIndexCount))
+            progressFraction = max(progressFraction ?? 0, fraction)
         }
     }
 

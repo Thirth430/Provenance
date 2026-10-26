@@ -162,8 +162,9 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
                 }
             case .completed(let hash):
                 contentMD5 = hash
-                if lastProgressBucket >= 0, lastTotalBytes > 0 {
-                    onHashProgress?(lastTotalBytes, lastTotalBytes)
+                let completedBytes = lastTotalBytes > 0 ? lastTotalBytes : candidate.fileSize
+                if completedBytes > 0 {
+                    onHashProgress?(completedBytes, completedBytes)
                 }
             }
         }

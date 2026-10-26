@@ -39,7 +39,8 @@ public protocol GameImporterDatabaseServicing {
     /// Adds an external ROM to Provenance's game database without copying the ROM file.
     func indexExternalGame(_ candidate: ExternalROMCandidate,
                            systemID: SystemIdentifier,
-                           progress: Progress?) async throws -> Bool
+                           progress: Progress?,
+                           onHashProgress: (@Sendable (Int64, Int64) -> Void)?) async throws -> Bool
 }
 
 /// Keeps large batch imports from launching an unbounded number of metadata and artwork requests.
@@ -121,7 +122,8 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
     /// Returns `false` when the same game identity is already in the database.
     func indexExternalGame(_ candidate: ExternalROMCandidate,
                            systemID: SystemIdentifier,
-                           progress: Progress? = nil) async throws -> Bool {
+                           progress: Progress? = nil,
+                           onHashProgress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> Bool {
         // Keep the folder permission active through the MD5 read and metadata setup.
         let access = try ExternalROMFolderAccessManager().openSavedFolder()
         defer { withExtendedLifetime(access) {} }
@@ -144,10 +146,26 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
         // Provenance's game identity is the full-file MD5. Do this once, and use it for both
         // Realm deduplication and PVFile's cached hash so library rendering never re-hashes it.
         var contentMD5: String?
+        var lastProgressBucket = -1
+        var lastTotalBytes: Int64 = 0
         let hashEvents = FileManager.default.md5StreamForFile(at: sourceURL, fromOffset: 0)
         for try await event in hashEvents {
             if Task.isCancelled || progress?.isCancelled == true { throw CancellationError() }
-            if case .completed(let hash) = event { contentMD5 = hash }
+            switch event {
+            case .progress(let bytesProcessed, let totalBytes):
+                guard totalBytes > 0 else { continue }
+                lastTotalBytes = totalBytes
+                let progressBucket = min(10, Int((bytesProcessed * 10) / totalBytes))
+                if progressBucket > lastProgressBucket {
+                    lastProgressBucket = progressBucket
+                    onHashProgress?(bytesProcessed, totalBytes)
+                }
+            case .completed(let hash):
+                contentMD5 = hash
+                if lastProgressBucket >= 0, lastTotalBytes > 0 {
+                    onHashProgress?(lastTotalBytes, lastTotalBytes)
+                }
+            }
         }
         guard let md5 = contentMD5?.uppercased() else { throw GameImporterError.couldNotCalculateMD5 }
         let alreadyIndexed = try await RealmContext.withBackgroundRealm { realm in

@@ -82,7 +82,7 @@ struct EpicRowView: View {
                             .font(.headline)
                             .foregroundStyle(.primary)
                         if epic.provenancePlus {
-                            Text("MEMBER")
+                            Text("PLUS")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5)

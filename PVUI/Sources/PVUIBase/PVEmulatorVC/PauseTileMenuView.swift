@@ -752,8 +752,8 @@ struct PauseTileMenuView: View {
             showingButtonSoundPicker = true
 
         // MARK: Recording / broadcast / clip
-        // Recording, broadcasting, and clip export require a paid entitlement
-        // on App Store builds (matches the HUD record button gate
+        // Recording, broadcasting, and clip export are Provenance Plus
+        // features on App Store builds (matches the HUD record button gate
         // in PVControllerViewController). Stop actions stay ungated so a
         // lapsed subscriber can always end an in-progress session.
         case "recording":

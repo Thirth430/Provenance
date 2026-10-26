@@ -478,7 +478,7 @@ struct ThemeSelectionView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 12, weight: .semibold))
-                        Text("LOCKED")
+                        Text("PLUS")
                             .font(.system(size: 11, weight: .heavy))
                         Text("— 9 CGA color themes")
                             .font(.system(size: 11))
@@ -545,7 +545,7 @@ struct ThemeSelectionView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 12, weight: .semibold))
-                        Text("LOCKED")
+                        Text("PLUS")
                             .font(.system(size: 11, weight: .heavy))
                     }
                     .foregroundStyle(

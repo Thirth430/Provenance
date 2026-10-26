@@ -149,7 +149,7 @@ public struct CloudSyncUpsellView: View {
         .alert("Cloud Sync Disabled", isPresented: $showPremiumLossAlert) {
             Button("OK", role: .cancel) { showPremiumLossAlert = false }
         } message: {
-            Text("Your subscription is inactive, so CloudKit sync was turned off. Renew to sync again.")
+            Text("Provenance Plus is inactive, so CloudKit sync was turned off. Reactivate Plus to sync again.")
         }
     }
 
@@ -180,11 +180,11 @@ public struct CloudSyncUpsellView: View {
             } else if isPremium {
                 Text("Sync your library with iCloud (CloudKit).")
             } else {
-                Text("CloudKit sync is included with a supporter subscription.")
+                Text("CloudKit sync is included with Provenance Plus.")
             }
 
             if disabledDueToPremiumLoss {
-                Text("Cloud sync was turned off because the subscription is inactive.")
+                Text("Cloud sync was turned off because Provenance Plus is inactive.")
                     .font(.caption)
                     .foregroundColor(.retroPink)
             } else if let total = cachedRecordTotal {
@@ -236,7 +236,7 @@ public struct CloudSyncUpsellView: View {
 
     private var nonPremiumActions: some View {
         VStack(spacing: 8) {
-            Text("An active supporter subscription is required to sync with CloudKit.")
+            Text("Unlock Provenance Plus to sync with CloudKit.")
                 .font(.subheadline)
                 .foregroundColor(.retroPink)
 

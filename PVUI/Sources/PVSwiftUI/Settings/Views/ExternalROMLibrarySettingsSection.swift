@@ -127,9 +127,12 @@ private final class ExternalROMLibrarySettingsModel {
     private(set) var reportSummary: String?
     private(set) var reportIssues: [String] = []
     private(set) var errorMessage: String?
+    private var currentIndexNumber = 0
+    private var totalIndexCount = 0
 
     private var scanTask: Task<Void, Never>?
     private var scanProgress: Progress?
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
     func selectFolder(_ url: URL) {
         do {
@@ -168,6 +171,12 @@ private final class ExternalROMLibrarySettingsModel {
 
         let progress = Progress(totalUnitCount: -1)
         scanProgress = progress
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "External ROM Library Scan") { [weak self] in
+            Task { @MainActor in
+                self?.scanProgress?.cancel()
+                self?.endBackgroundTask()
+            }
+        }
         let systems = PVEmulatorConfiguration.availableSystemIdentifiers.compactMap { identifier -> ExternalROMSystem? in
             guard let extensions = PVEmulatorConfiguration.fileExtensions(forSystemIdentifier: identifier),
                   !extensions.isEmpty else { return nil }
@@ -207,6 +216,13 @@ private final class ExternalROMLibrarySettingsModel {
                                                          total: total)
                     }
                 },
+                                                                           onHashProgress: { candidate, bytesProcessed, totalBytes in
+                    Task { @MainActor [weak self] in
+                        self?.updateHashProgress(fileName: candidate.url.lastPathComponent,
+                                                 bytesProcessed: bytesProcessed,
+                                                 totalBytes: totalBytes)
+                    }
+                },
                                                                            onProgress: { done, total in
                     Task { @MainActor [weak self] in
                         self?.updateIndexProgress(done: done, total: total)
@@ -226,6 +242,8 @@ private final class ExternalROMLibrarySettingsModel {
     }
 
     private func beginIndexing(count: Int) {
+        currentIndexNumber = 0
+        totalIndexCount = count
         progressMessage = "Adding \(count) games to your library…"
         progressFraction = count == 0 ? 1 : 0
     }
@@ -236,8 +254,22 @@ private final class ExternalROMLibrarySettingsModel {
     }
 
     private func updateCurrentIndexProgress(fileName: String, size: String, current: Int, total: Int) {
-        progressMessage = "Checking game \(current) of \(total): \(fileName) (\(size))…"
+        currentIndexNumber = current
+        totalIndexCount = total
+        progressMessage = "Preparing game \(current) of \(total): \(fileName) (\(size))…"
         progressFraction = total == 0 ? 1 : Double(current - 1) / Double(total)
+    }
+
+    private func updateHashProgress(fileName: String, bytesProcessed: Int64, totalBytes: Int64) {
+        let percent = min(100, Int((Double(bytesProcessed) / Double(max(1, totalBytes))) * 100))
+        let processed = ByteCountFormatter.string(fromByteCount: bytesProcessed, countStyle: .file)
+        let total = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+        progressMessage = "Checking \(fileName) for duplicates… \(percent)% (\(processed) of \(total))"
+        if totalIndexCount > 0, currentIndexNumber > 0 {
+            progressFraction = min(1,
+                                   (Double(currentIndexNumber - 1) + Double(percent) / 100)
+                                    / Double(totalIndexCount))
+        }
     }
 
     private func finish(report: ExternalROMIndexReport, discoveredCount: Int, issues: [String]) {
@@ -248,7 +280,8 @@ private final class ExternalROMLibrarySettingsModel {
         reportIssues = Array(issues.prefix(500))
         reportSummary = report.wasCancelled
             ? "Scan cancelled after \(report.processedCount) of \(discoveredCount) games. Added \(report.indexedCount); skipped \(report.duplicateCount)."
-            : "Found \(discoveredCount) games. Added \(report.indexedCount); skipped \(report.duplicateCount) duplicates. \(issues.count) issue(s)."
+            : "Found \(discoveredCount) games. Added \(report.indexedCount); skipped \(report.duplicateCount) duplicates. \(issues.count) issue(s). Game metadata and cover art are looked up in the background after games are added."
+        endBackgroundTask()
         if report.indexedCount > 0 {
             // Refresh library views once after the batch, without invoking the full ROM rescan.
             NotificationCenter.default.post(name: .gameLibraryDidUpdate, object: nil)
@@ -261,6 +294,7 @@ private final class ExternalROMLibrarySettingsModel {
         scanProgress = nil
         progressFraction = nil
         reportSummary = "Folder scan cancelled. No games were indexed."
+        endBackgroundTask()
     }
 
     private func fail(_ message: String) {
@@ -269,6 +303,13 @@ private final class ExternalROMLibrarySettingsModel {
         scanProgress = nil
         progressFraction = nil
         errorMessage = message
+        endBackgroundTask()
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
     }
 }
 

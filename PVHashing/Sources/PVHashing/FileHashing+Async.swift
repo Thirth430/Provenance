@@ -80,7 +80,9 @@ public func calculateMD5Stream(
 
                 var hasher = Insecure.MD5()
                 var bytesProcessed: Int64 = 0
-                let bufferSize = 1024 * 1024 // 1 MB per chunk
+                // Larger sequential reads reduce per-read overhead for external USB libraries.
+                // Hash results are independent of chunk size; the stream still reports progress.
+                let bufferSize = 8 * 1024 * 1024 // 8 MB per chunk
 
                 while !Task.isCancelled {
                     guard let chunk = try fileHandle.read(upToCount: bufferSize), !chunk.isEmpty else {

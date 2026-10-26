@@ -86,11 +86,11 @@ public final class PVApplicationServices: NSObject, ObservableObject {
     // Check if the app is running in App Store mode
     public var isAppStore: Bool {
         guard Bundle.main.bundleIdentifier?.hasPrefix("org.provenance-emu.provenance") == true else {
-            ILOG("Bundle id \(Bundle.main.bundleIdentifier ?? "null") is NOT official. Disabling subscription checks.")
+            ILOG("Bundle id \(Bundle.main.bundleIdentifier ?? "null") is NOT official. Disabling Provenance Plus checks.")
             return false
         }
         guard let appType = Bundle.main.infoDictionary?["PVAppType"] as? String else {
-            ILOG("appType \( Bundle.main.infoDictionary?["PVAppType"] ?? "null") is NOT official. Disabling subscription checks.")
+            ILOG("appType \( Bundle.main.infoDictionary?["PVAppType"] ?? "null") is NOT official. Disabling Provenance Plus checks.")
             return false
         }
         let isAppStore = appType.lowercased().contains("appstore")

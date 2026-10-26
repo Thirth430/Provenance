@@ -71,10 +71,10 @@
 "settings.skins.download_more" = "Download more skins from DeltaStyles";
 "settings.skins.visit_deltastyles" = "Visit DeltaStyles.com";
 
-"settings.plus.active_title" = "SUPPORTER FEATURES ACTIVE";
+"settings.plus.active_title" = "PROVENANCE PLUS ACTIVE";
 "settings.plus.thank_you" = "Thank you for your support!";
-"settings.plus.upgrade_title" = "SUPPORT DEVELOPMENT";
-"settings.plus.upgrade_description" = "Support Provenance development and unlock cloud sync, premium themes & more";
+"settings.plus.upgrade_title" = "UPGRADE TO PROVENANCE PLUS";
+"settings.plus.upgrade_description" = "Unlock cloud sync, premium themes & more";
 
 // MARK: - Cloud Sync (CloudSyncSettingsView.swift)
 "cloud_sync.title_tvos" = "CLOUD SYNC";
@@ -219,7 +219,7 @@
 "retro_menu.saves.no_save_states" = "No Save States";
 "retro_menu.saves.save_states_hint" = "Use \"Save State\" from the pause menu to create saves.";
 "retro_menu.saves.auto_save_to_photos" = "Auto-Save to Photos";
-"retro_menu.plus.badge" = "MEMBER";
+"retro_menu.plus.badge" = "PLUS";
 
 // MARK: - Save Import Wizard (SaveImportWizardView.swift)
 

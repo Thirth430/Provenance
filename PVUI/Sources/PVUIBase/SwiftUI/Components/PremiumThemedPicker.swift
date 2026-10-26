@@ -69,7 +69,7 @@ public struct PremiumThemedPicker<T: CaseIterable & Identifiable & CustomStringC
                         HStack(spacing: 3) {
                             Image(systemName: "lock.fill")
                                 .font(.system(size: 10, weight: .semibold))
-                            Text("LOCKED")
+                            Text("PLUS")
                                 .font(.system(size: 9, weight: .heavy))
                         }
                         .foregroundStyle(
@@ -130,7 +130,7 @@ public struct PremiumThemedPicker<T: CaseIterable & Identifiable & CustomStringC
                         HStack(spacing: 3) {
                             Image(systemName: "lock.fill")
                                 .font(.system(size: 10, weight: .semibold))
-                            Text("LOCKED")
+                            Text("PLUS")
                                 .font(.system(size: 9, weight: .heavy))
                         }
                         .foregroundStyle(

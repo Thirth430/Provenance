@@ -297,7 +297,7 @@ struct AppIconSelectorView: View {
                     VStack(spacing: 2) {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("LOCKED")
+                        Text("PLUS")
                             .font(.system(size: 8, weight: .heavy))
                     }
                     .foregroundStyle(

@@ -35,7 +35,7 @@
 //      on every foreground. Deletes are deferred until that load settles so a
 //      short launch can't clear a real owner's mirror.
 //    * `CrossAppEntitlementReader` — reads `ifly.pro` and, when it grants,
-//      unlocks the paid tier via FreemiumKit's tier override so every
+//      unlocks Provenance Plus via FreemiumKit's tier override so every
 //      existing Plus gate (`PaidFeatureView`, `PaidStatusView`, `purchasedTier`
 //      checks) honors it with no per-gate changes.
 //
@@ -135,7 +135,7 @@ private enum SharedEntitlementKeychain {
     }
 }
 
-// MARK: - Publisher (paid tier → sibling apps)
+// MARK: - Publisher (Provenance Plus → siblings)
 
 public enum CrossAppEntitlementPublisher {
     private static let account = "provenance.plus"
@@ -199,7 +199,7 @@ public enum CrossAppEntitlementPublisher {
     /// `tierOwned` is FreemiumKit's view of Plus. When we granted Plus
     /// ourselves off a sibling app's `ifly.pro` mirror, FreemiumKit's tier is
     /// *contaminated by that grant* — republishing it would loop iFly Pro
-    /// straight back out as the paid tier and grant it forever. In that case
+    /// straight back out as Provenance Plus and grant it forever. In that case
     /// StoreKit's `currentEntitlements` is the only uncontaminated ownership
     /// signal, so a real purchase still publishes and a pure cross-app grant
     /// does not. We deliberately do NOT gate on the grant latch alone: at
@@ -238,7 +238,7 @@ public enum CrossAppEntitlementPublisher {
         }
     }
 
-    /// The active StoreKit entitlement, if any: its period
+    /// The active Provenance Plus entitlement from StoreKit, if any: its period
     /// and expiry (nil expiry = lifetime, or FreemiumKit-only state with no
     /// matching StoreKit transaction — e.g. a promotional/dev grant).
     private static func currentPlusEntitlement() async -> (period: String?, expiresAt: Date?)? {
@@ -261,7 +261,7 @@ public enum CrossAppEntitlementPublisher {
     }
 }
 
-// MARK: - Reader (sibling app entitlement)
+// MARK: - Reader (iFly Pro → Provenance Plus)
 
 /// Reads the sibling `ifly.pro` mirror and, when it grants, unlocks Provenance
 /// Plus. The reverse of `CrossAppEntitlementPublisher`; the status/expiry rules
@@ -269,7 +269,7 @@ public enum CrossAppEntitlementPublisher {
 public enum CrossAppEntitlementReader {
     private static let iFlyProAccount = "ifly.pro"
 
-    /// FreemiumKit tier that corresponds to the paid subscription.
+    /// FreemiumKit tier that corresponds to Provenance Plus.
     private static let plusTier = 1
 
     /// Slack past `expiresAt` before a subscription mirror stops counting —
@@ -324,7 +324,7 @@ public enum CrossAppEntitlementReader {
         grantsPlus(rawValue: SharedEntitlementKeychain.read(account: iFlyProAccount), now: Date())
     }
 
-    /// Unlock the paid tier if the sibling `ifly.pro` mirror grants it.
+    /// Unlock Provenance Plus if the sibling `ifly.pro` mirror grants it.
     /// Call at launch and on foreground (the user may buy Pro in iFly while
     /// Provenance is backgrounded); idempotent and cheap after the first grant.
     ///
@@ -348,14 +348,14 @@ public enum CrossAppEntitlementReader {
         guard iFlyProActive else { return }
         didGrantPlusFromSibling = true
         FreemiumKit.shared.overrideForDebug(purchasedTier: plusTier)
-        ILOG("CrossAppEntitlement: active iFly Pro found — unlocking paid features")
+        ILOG("CrossAppEntitlement: active iFly Pro found — unlocking Provenance Plus")
         #endif
     }
 }
 
 // MARK: - App-level Plus accessor
 
-/// Single answer to whether the user has an active paid entitlement for app code that
+/// Single answer to "does this user have Provenance Plus?" for app code that
 /// checks the tier directly instead of wrapping UI in `PaidFeatureView`.
 ///
 /// ORs FreemiumKit's state with the cross-app grant. The grant is also pushed

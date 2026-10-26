@@ -115,7 +115,8 @@ private final class ExternalIndexingDatabaseMock: GameImporterDatabaseServicing 
 
     func indexExternalGame(_ candidate: ExternalROMCandidate,
                            systemID: SystemIdentifier,
-                           progress: Progress?) async throws -> Bool {
+                           progress: Progress?,
+                           onHashProgress: (@Sendable (Int64, Int64) -> Void)?) async throws -> Bool {
         indexedSystems.append(systemID)
         return indexResult
     }

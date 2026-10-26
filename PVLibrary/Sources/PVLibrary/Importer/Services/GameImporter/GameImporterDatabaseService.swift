@@ -42,6 +42,52 @@ public protocol GameImporterDatabaseServicing {
                            progress: Progress?) async throws -> Bool
 }
 
+/// Keeps large batch imports from launching an unbounded number of metadata and artwork requests.
+actor GameMetadataLookupThrottle {
+    static let shared = GameMetadataLookupThrottle(maxConcurrentLookups: 2)
+
+    private let maxConcurrentLookups: Int
+    private var activeLookups = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var firstWaiter = 0
+
+    init(maxConcurrentLookups: Int) {
+        self.maxConcurrentLookups = max(1, maxConcurrentLookups)
+    }
+
+    func withPermit<T: Sendable>(_ operation: @Sendable () async throws -> T) async rethrows -> T {
+        await acquire()
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        guard activeLookups >= maxConcurrentLookups else {
+            activeLookups += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        guard firstWaiter < waiters.count else {
+            activeLookups -= 1
+            waiters.removeAll(keepingCapacity: true)
+            firstWaiter = 0
+            return
+        }
+        let continuation = waiters[firstWaiter]
+        firstWaiter += 1
+        if firstWaiter == waiters.count {
+            waiters.removeAll(keepingCapacity: true)
+            firstWaiter = 0
+        }
+        continuation.resume()
+    }
+}
+
 extension CharacterSet {
     var GameImporterDatabaseServiceCharset: CharacterSet {
         _GameImporterDatabaseServiceCharset
@@ -527,40 +573,42 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
             let lookupService = self.lookup
             Task.detached(priority: .utility) {
                 do {
-                    // Step 1: Fetch game from Realm (sync)
-                    let frozenGame: PVGame? = try await RealmContext.withBackgroundRealm { realm in
-                        realm.object(ofType: PVGame.self, forPrimaryKey: gameID)?.freeze()
-                    }
-                    guard let frozenGame = frozenGame else {
-                        DLOG("finishUpdateOrImport: Game \(gameID) not found for deferred metadata update")
-                        return
-                    }
-
-                    // Step 2: Do async metadata lookup
-                    let tempService = GameImporterDatabaseService(lookup: lookupService, gameImporterFileService: GameImporterFileService())
-                    let updatedGame = try await tempService.getUpdatedGameInfo(
-                        for: frozenGame, forceRefresh: true, indexFileMD5: indexFileMD5)
-
-                    var finalGame = updatedGame
-                    if !updatedGame.originalArtworkURL.isEmpty && updatedGame.originalArtworkFile == nil {
-                        DLOG("finishUpdateOrImport: Metadata update found artwork URL, downloading for: \(updatedGame.romPath)")
-                        finalGame = await tempService.getArtwork(forGame: updatedGame)
-                    }
-
-                    // Step 3: Write back to Realm and mirror to SwiftData (epic #2510).
-                    let frozenForSwiftData: PVGame = try await RealmContext.withBackgroundRealm { realm in
-                        try realm.write {
-                            realm.add(finalGame, update: .modified)
+                    try await GameMetadataLookupThrottle.shared.withPermit {
+                        // Step 1: Fetch game from Realm (sync)
+                        let frozenGame: PVGame? = try await RealmContext.withBackgroundRealm { realm in
+                            realm.object(ofType: PVGame.self, forPrimaryKey: gameID)?.freeze()
                         }
-                        return finalGame.isFrozen ? finalGame : finalGame.freeze()
-                    }
-                    await GameImporterSwiftDataBridge.shared?.saveGame(frozenForSwiftData)
+                        guard let frozenGame = frozenGame else {
+                            DLOG("finishUpdateOrImport: Game \(gameID) not found for deferred metadata update")
+                            return
+                        }
 
-                    // Re-index in Spotlight with updated metadata/artwork (#2980)
-                    #if canImport(CoreSpotlight) && !os(tvOS)
-                    await tempService.indexGameInSpotlight(frozenForSwiftData)
-                    #endif
-                    DLOG("finishUpdateOrImport: Completed deferred getUpdatedGameInfo for: \(finalGame.romPath)")
+                        // Step 2: Do async metadata lookup
+                        let tempService = GameImporterDatabaseService(lookup: lookupService, gameImporterFileService: GameImporterFileService())
+                        let updatedGame = try await tempService.getUpdatedGameInfo(
+                            for: frozenGame, forceRefresh: true, indexFileMD5: indexFileMD5)
+
+                        var finalGame = updatedGame
+                        if !updatedGame.originalArtworkURL.isEmpty && updatedGame.originalArtworkFile == nil {
+                            DLOG("finishUpdateOrImport: Metadata update found artwork URL, downloading for: \(updatedGame.romPath)")
+                            finalGame = await tempService.getArtwork(forGame: updatedGame)
+                        }
+
+                        // Step 3: Write back to Realm and mirror to SwiftData (epic #2510).
+                        let frozenForSwiftData: PVGame = try await RealmContext.withBackgroundRealm { realm in
+                            try realm.write {
+                                realm.add(finalGame, update: .modified)
+                            }
+                            return finalGame.isFrozen ? finalGame : finalGame.freeze()
+                        }
+                        await GameImporterSwiftDataBridge.shared?.saveGame(frozenForSwiftData)
+
+                        // Re-index in Spotlight with updated metadata/artwork (#2980)
+                        #if canImport(CoreSpotlight) && !os(tvOS)
+                        await tempService.indexGameInSpotlight(frozenForSwiftData)
+                        #endif
+                        DLOG("finishUpdateOrImport: Completed deferred getUpdatedGameInfo for: \(finalGame.romPath)")
+                    }
                 } catch {
                     WLOG("finishUpdateOrImport: Failed deferred metadata update: \(error.localizedDescription)")
                 }

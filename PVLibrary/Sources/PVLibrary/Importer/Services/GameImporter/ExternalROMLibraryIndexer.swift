@@ -33,6 +33,7 @@ public struct ExternalROMLibraryIndexer {
     public func index(_ candidates: [ExternalROMCandidate],
                       systemOverrides: [String: String] = [:],
                       progress: Progress? = nil,
+                      onCandidateStarted: (@Sendable (ExternalROMCandidate, Int, Int) -> Void)? = nil,
                       onProgress: (@Sendable (Int, Int) -> Void)? = nil) async -> ExternalROMIndexReport {
         if let progress, progress.totalUnitCount <= 0 {
             progress.totalUnitCount = Int64(candidates.count)
@@ -61,6 +62,7 @@ public struct ExternalROMLibraryIndexer {
                 continue
             }
 
+            onCandidateStarted?(candidate, processedCount + 1, candidates.count)
             do {
                 if try await databaseService.indexExternalGame(candidate, systemID: systemID, progress: progress) {
                     indexedCount += 1

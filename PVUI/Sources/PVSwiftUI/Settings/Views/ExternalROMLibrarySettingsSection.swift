@@ -198,6 +198,15 @@ private final class ExternalROMLibrarySettingsModel {
                 progress.completedUnitCount = 0
                 let indexReport = await ExternalROMLibraryIndexer().index(result.candidates,
                                                                            progress: progress,
+                                                                           onCandidateStarted: { candidate, current, total in
+                    let size = ByteCountFormatter.string(fromByteCount: candidate.fileSize, countStyle: .file)
+                    Task { @MainActor [weak self] in
+                        self?.updateCurrentIndexProgress(fileName: candidate.url.lastPathComponent,
+                                                         size: size,
+                                                         current: current,
+                                                         total: total)
+                    }
+                },
                                                                            onProgress: { done, total in
                     Task { @MainActor [weak self] in
                         self?.updateIndexProgress(done: done, total: total)
@@ -224,6 +233,11 @@ private final class ExternalROMLibrarySettingsModel {
     private func updateIndexProgress(done: Int, total: Int) {
         progressMessage = "Adding games… \(done) of \(total)"
         progressFraction = total == 0 ? 1 : Double(done) / Double(total)
+    }
+
+    private func updateCurrentIndexProgress(fileName: String, size: String, current: Int, total: Int) {
+        progressMessage = "Checking game \(current) of \(total): \(fileName) (\(size))…"
+        progressFraction = total == 0 ? 1 : Double(current - 1) / Double(total)
     }
 
     private func finish(report: ExternalROMIndexReport, discoveredCount: Int, issues: [String]) {

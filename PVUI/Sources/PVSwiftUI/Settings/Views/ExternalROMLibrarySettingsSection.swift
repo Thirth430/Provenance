@@ -130,8 +130,7 @@ private final class ExternalROMLibrarySettingsModel {
     private(set) var reportIssues: [String] = []
     private(set) var errorMessage: String?
     private var currentIndexNumber = 0
-    private var totalIndexCount = 0
-    private var currentIndexRelativePath: String?
+    private var isIndexing = false
 
     private var scanTask: Task<Void, Never>?
     private var scanProgress: Progress?
@@ -166,6 +165,7 @@ private final class ExternalROMLibrarySettingsModel {
     func scanAndIndex() {
         guard !isBusy, folderName != nil else { return }
         isBusy = true
+        isIndexing = false
         errorMessage = nil
         reportSummary = nil
         reportIssues = []
@@ -195,7 +195,8 @@ private final class ExternalROMLibrarySettingsModel {
                                                          progress: progress,
                                                          onProgress: { visited in
                     Task { @MainActor [weak self] in
-                        self?.progressMessage = "Scanning folders… \(visited) files checked"
+                        guard let self, self.isBusy, !self.isIndexing else { return }
+                        self.progressMessage = "Scanning folders… \(visited) files checked"
                     }
                 })
 
@@ -212,24 +213,24 @@ private final class ExternalROMLibrarySettingsModel {
                                                                            progress: progress,
                                                                            onCandidateStarted: { candidate, current, total in
                     let size = ByteCountFormatter.string(fromByteCount: candidate.fileSize, countStyle: .file)
-                    Task { @MainActor [weak self] in
-                        self?.updateCurrentIndexProgress(relativePath: candidate.relativePath,
-                                                         fileName: candidate.url.lastPathComponent,
+                    await MainActor.run { [weak self] in
+                        self?.updateCurrentIndexProgress(fileName: candidate.url.lastPathComponent,
                                                          size: size,
                                                          current: current,
                                                          total: total)
                     }
                 },
-                                                                           onHashProgress: { candidate, bytesProcessed, totalBytes in
-                    Task { @MainActor [weak self] in
-                        self?.updateHashProgress(relativePath: candidate.relativePath,
-                                                 fileName: candidate.url.lastPathComponent,
+                                                                           onHashProgress: { candidate, current, total, bytesProcessed, totalBytes in
+                    await MainActor.run { [weak self] in
+                        self?.updateHashProgress(fileName: candidate.url.lastPathComponent,
+                                                 current: current,
+                                                 totalGames: total,
                                                  bytesProcessed: bytesProcessed,
                                                  totalBytes: totalBytes)
                     }
                 },
                                                                            onProgress: { done, total in
-                    Task { @MainActor [weak self] in
+                    await MainActor.run { [weak self] in
                         self?.updateIndexProgress(done: done, total: total)
                     }
                 })
@@ -247,49 +248,46 @@ private final class ExternalROMLibrarySettingsModel {
     }
 
     private func beginIndexing(count: Int) {
+        isIndexing = true
         currentIndexNumber = 0
-        totalIndexCount = count
         progressMessage = "Adding \(count) games to your library…"
         progressFraction = count == 0 ? 1 : 0
     }
 
     private func updateIndexProgress(done: Int, total: Int) {
-        progressMessage = "Adding games… \(done) of \(total)"
-        progressFraction = total == 0 ? 1 : Double(done) / Double(total)
-    }
-
-    private func updateCurrentIndexProgress(relativePath: String,
-                                            fileName: String,
-                                            size: String,
-                                            current: Int,
-                                            total: Int) {
-        currentIndexNumber = current
-        totalIndexCount = total
-        currentIndexRelativePath = relativePath
-        progressMessage = "Preparing game \(current) of \(total): \(fileName) (\(size))…"
-        let fraction = total == 0 ? 1 : Double(current - 1) / Double(total)
+        guard isBusy else { return }
+        progressMessage = done >= total
+            ? "Finished checking \(done) of \(total) games."
+            : "Processed \(done) of \(total) games; checking the remaining ROMs…"
+        let fraction = total == 0 ? 1 : Double(done) / Double(total)
         progressFraction = max(progressFraction ?? 0, fraction)
     }
 
-    private func updateHashProgress(relativePath: String,
-                                    fileName: String,
+    private func updateCurrentIndexProgress(fileName: String,
+                                            size: String,
+                                            current: Int,
+                                            total: Int) {
+        guard isBusy, current >= currentIndexNumber else { return }
+        currentIndexNumber = current
+        progressMessage = "Preparing game \(current) of \(total): \(fileName) (\(size))…"
+        progressFraction = nil
+    }
+
+    private func updateHashProgress(fileName: String,
+                                    current: Int,
+                                    totalGames: Int,
                                     bytesProcessed: Int64,
                                     totalBytes: Int64) {
-        guard currentIndexRelativePath == relativePath else { return }
+        guard isBusy else { return }
         let percent = min(100, Int((Double(bytesProcessed) / Double(max(1, totalBytes))) * 100))
         let processed = ByteCountFormatter.string(fromByteCount: bytesProcessed, countStyle: .file)
-        let total = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
-        progressMessage = "Checking \(fileName) for duplicates… \(percent)% (\(processed) of \(total))"
-        if totalIndexCount > 0, currentIndexNumber > 0 {
-            let fraction = min(1,
-                               (Double(currentIndexNumber - 1) + Double(percent) / 100)
-                                / Double(totalIndexCount))
-            progressFraction = max(progressFraction ?? 0, fraction)
-        }
+        let formattedTotalBytes = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+        progressMessage = "Checking game \(current) of \(totalGames): \(fileName)… \(percent)% (\(processed) of \(formattedTotalBytes))"
     }
 
     private func finish(report: ExternalROMIndexReport, discoveredCount: Int, issues: [String]) {
         isBusy = false
+        isIndexing = false
         scanTask = nil
         scanProgress = nil
         progressFraction = nil
@@ -306,6 +304,7 @@ private final class ExternalROMLibrarySettingsModel {
 
     private func finishCancelled() {
         isBusy = false
+        isIndexing = false
         scanTask = nil
         scanProgress = nil
         progressFraction = nil
@@ -315,6 +314,7 @@ private final class ExternalROMLibrarySettingsModel {
 
     private func fail(_ message: String) {
         isBusy = false
+        isIndexing = false
         scanTask = nil
         scanProgress = nil
         progressFraction = nil

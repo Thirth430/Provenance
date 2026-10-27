@@ -30,7 +30,7 @@ final class ExternalROMLibraryIndexerTests: XCTestCase {
         let candidate = try scan(extensions: ["nes"])
         database.indexResult = false
 
-        let report = await ExternalROMLibraryIndexer(databaseService: database).index([candidate])
+        let report = await makeIndexer().index([candidate])
 
         XCTAssertEqual(database.indexedSystems, [.NES])
         XCTAssertEqual(report.indexedCount, 0)
@@ -42,7 +42,7 @@ final class ExternalROMLibraryIndexerTests: XCTestCase {
         try write("Track.bin")
         let candidate = try scan(extensions: ["bin"], systems: [.NES, .SNES])
 
-        let report = await ExternalROMLibraryIndexer(databaseService: database).index([candidate])
+        let report = await makeIndexer().index([candidate])
 
         XCTAssertTrue(database.indexedSystems.isEmpty)
         XCTAssertEqual(report.issues.first?.relativePath, "Track.bin")
@@ -53,7 +53,7 @@ final class ExternalROMLibraryIndexerTests: XCTestCase {
         try write("Track.bin")
         let candidate = try scan(extensions: ["bin"], systems: [.NES, .SNES])
 
-        let report = await ExternalROMLibraryIndexer(databaseService: database)
+        let report = await makeIndexer()
             .index([candidate], systemOverrides: [candidate.relativePath: SystemIdentifier.SNES.rawValue])
 
         XCTAssertEqual(database.indexedSystems, [.SNES])
@@ -67,15 +67,44 @@ final class ExternalROMLibraryIndexerTests: XCTestCase {
         let candidates = try scanAll()
         let progress = Progress(totalUnitCount: Int64(candidates.count))
 
-        let report = await ExternalROMLibraryIndexer(databaseService: database).index(candidates,
-                                                                                       progress: progress,
-                                                                                       onProgress: { count, _ in
+        let report = await makeIndexer().index(candidates,
+                                               progress: progress,
+                                               onProgress: { count, _ in
             if count == 1 { progress.cancel() }
         })
 
         XCTAssertTrue(report.wasCancelled)
         XCTAssertEqual(database.indexedSystems.count, 1)
         XCTAssertEqual(report.processedCount, 1)
+    }
+
+    func testHashesAtMostTwoFilesAtOnce() async throws {
+        try write("One.nes")
+        try write("Two.nes")
+        try write("Three.nes")
+        let candidates = try scanAll()
+        let probe = HashConcurrencyProbe()
+        let indexer = ExternalROMLibraryIndexer(databaseService: database, hashOperation: { candidate, _, _ in
+            await probe.enter()
+            try? await Task.sleep(for: .milliseconds(30))
+            await probe.leave()
+            return candidate.relativePath
+        })
+
+        let report = await indexer.index(candidates)
+
+        let maximumConcurrency = await probe.maximumConcurrency
+        XCTAssertEqual(maximumConcurrency, 2)
+        XCTAssertEqual(database.indexedSystems.count, 3)
+        XCTAssertEqual(report.indexedCount, 3)
+        XCTAssertEqual(report.processedCount, 3)
+    }
+
+    private func makeIndexer() -> ExternalROMLibraryIndexer {
+        ExternalROMLibraryIndexer(databaseService: database, hashOperation: { candidate, _, onProgress in
+            if candidate.fileSize > 0 { await onProgress(candidate.fileSize, candidate.fileSize) }
+            return "test-md5"
+        })
     }
 
     private func write(_ relativePath: String) throws {
@@ -115,9 +144,23 @@ private final class ExternalIndexingDatabaseMock: GameImporterDatabaseServicing 
 
     func indexExternalGame(_ candidate: ExternalROMCandidate,
                            systemID: SystemIdentifier,
-                           progress: Progress?,
-                           onHashProgress: (@Sendable (Int64, Int64) -> Void)?) async throws -> Bool {
+                           contentMD5: String,
+                           progress: Progress?) async throws -> Bool {
         indexedSystems.append(systemID)
         return indexResult
+    }
+}
+
+private actor HashConcurrencyProbe {
+    private var active = 0
+    private(set) var maximumConcurrency = 0
+
+    func enter() {
+        active += 1
+        maximumConcurrency = max(maximumConcurrency, active)
+    }
+
+    func leave() {
+        active -= 1
     }
 }

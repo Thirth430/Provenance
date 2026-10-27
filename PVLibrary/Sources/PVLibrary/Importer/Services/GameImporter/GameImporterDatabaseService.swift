@@ -39,8 +39,8 @@ public protocol GameImporterDatabaseServicing {
     /// Adds an external ROM to Provenance's game database without copying the ROM file.
     func indexExternalGame(_ candidate: ExternalROMCandidate,
                            systemID: SystemIdentifier,
-                           progress: Progress?,
-                           onHashProgress: (@Sendable (Int64, Int64) -> Void)?) async throws -> Bool
+                           contentMD5: String,
+                           progress: Progress?) async throws -> Bool
 }
 
 /// Keeps large batch imports from launching an unbounded number of metadata and artwork requests.
@@ -122,9 +122,9 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
     /// Returns `false` when the same game identity is already in the database.
     func indexExternalGame(_ candidate: ExternalROMCandidate,
                            systemID: SystemIdentifier,
-                           progress: Progress? = nil,
-                           onHashProgress: (@Sendable (Int64, Int64) -> Void)? = nil) async throws -> Bool {
-        // Keep the folder permission active through the MD5 read and metadata setup.
+                           contentMD5: String,
+                           progress: Progress? = nil) async throws -> Bool {
+        // Keep the folder permission active while validating and indexing the selected file.
         let access = try ExternalROMFolderAccessManager().openSavedFolder()
         defer { withExtendedLifetime(access) {} }
 
@@ -142,33 +142,10 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
         guard FileManager.default.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             throw ExternalROMFolderError.unavailable(sourceURL.path)
         }
+        if Task.isCancelled || progress?.isCancelled == true { throw CancellationError() }
 
-        // Provenance's game identity is the full-file MD5. Do this once, and use it for both
-        // Realm deduplication and PVFile's cached hash so library rendering never re-hashes it.
-        var contentMD5: String?
-        var lastProgressBucket = -1
-        var lastTotalBytes: Int64 = 0
-        let hashEvents = FileManager.default.md5StreamForFile(at: sourceURL, fromOffset: 0)
-        for try await event in hashEvents {
-            if Task.isCancelled || progress?.isCancelled == true { throw CancellationError() }
-            switch event {
-            case .progress(let bytesProcessed, let totalBytes):
-                guard totalBytes > 0 else { continue }
-                lastTotalBytes = totalBytes
-                let progressBucket = min(10, Int((bytesProcessed * 10) / totalBytes))
-                if progressBucket > lastProgressBucket {
-                    lastProgressBucket = progressBucket
-                    onHashProgress?(bytesProcessed, totalBytes)
-                }
-            case .completed(let hash):
-                contentMD5 = hash
-                let completedBytes = lastTotalBytes > 0 ? lastTotalBytes : candidate.fileSize
-                if completedBytes > 0 {
-                    onHashProgress?(completedBytes, completedBytes)
-                }
-            }
-        }
-        guard let md5 = contentMD5?.uppercased() else { throw GameImporterError.couldNotCalculateMD5 }
+        guard !contentMD5.isEmpty else { throw GameImporterError.couldNotCalculateMD5 }
+        let md5 = contentMD5.uppercased()
         let alreadyIndexed = try await RealmContext.withBackgroundRealm { realm in
             realm.object(ofType: PVGame.self, forPrimaryKey: md5) != nil
         }
@@ -197,6 +174,7 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
         game.requiresSync = false
 
         // Reuse Provenance's existing Realm/SwiftData save, metadata and artwork handling.
+        if Task.isCancelled || progress?.isCancelled == true { throw CancellationError() }
         try await finishUpdateOrImport(ofGame: game, lookupMetadata: true)
         return true
     }

@@ -9,18 +9,50 @@ import PVSettings
 
 /// A user-selected ROM folder that remains in place outside Provenance's managed library.
 public struct ExternalROMFolder: Codable, Equatable, Sendable {
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     public var version: Int
+    /// Stable identity for this selection, retained if the bookmark itself is refreshed.
+    public var identifier: UUID
     public var bookmark: Data
     public var displayName: String
     public var selectedAt: Date
 
-    public init(bookmark: Data, displayName: String, selectedAt: Date = Date()) {
+    public init(bookmark: Data,
+                displayName: String,
+                selectedAt: Date = Date(),
+                identifier: UUID = UUID()) {
         version = Self.currentVersion
+        self.identifier = identifier
         self.bookmark = bookmark
         self.displayName = displayName
         self.selectedAt = selectedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case identifier
+        case bookmark
+        case displayName
+        case selectedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
+        identifier = try values.decodeIfPresent(UUID.self, forKey: .identifier) ?? UUID()
+        bookmark = try values.decode(Data.self, forKey: .bookmark)
+        displayName = try values.decode(String.self, forKey: .displayName)
+        selectedAt = try values.decodeIfPresent(Date.self, forKey: .selectedAt) ?? Date()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(version, forKey: .version)
+        try values.encode(identifier, forKey: .identifier)
+        try values.encode(bookmark, forKey: .bookmark)
+        try values.encode(displayName, forKey: .displayName)
+        try values.encode(selectedAt, forKey: .selectedAt)
     }
 }
 
@@ -43,7 +75,12 @@ public struct ExternalROMFolderStore: Sendable {
 
     public func load() -> ExternalROMFolder? {
         guard let data = read() else { return nil }
-        return try? JSONDecoder().decode(ExternalROMFolder.self, from: data)
+        guard var folder = try? JSONDecoder().decode(ExternalROMFolder.self, from: data) else { return nil }
+        if folder.version < ExternalROMFolder.currentVersion {
+            folder.version = ExternalROMFolder.currentVersion
+            try? save(folder)
+        }
+        return folder
     }
 
     public func save(_ folder: ExternalROMFolder) throws {

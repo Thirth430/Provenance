@@ -59,6 +59,18 @@ final class ExternalROMScannerTests: XCTestCase {
         XCTAssertLessThan(result.candidates.count, 5)
     }
 
+    func testUnavailableRootFailsInsteadOfReturningAnEmptyInventory() {
+        let unavailableRoot = root.appendingPathComponent("Disconnected")
+
+        XCTAssertThrowsError(try ExternalROMScanner.scan(root: unavailableRoot,
+                                                         systems: [ExternalROMSystem(identifier: "nes",
+                                                                                     supportedExtensions: ["nes"])])) { error in
+            guard case ExternalROMFolderError.unavailable = error else {
+                return XCTFail("Expected unavailable-folder error, got \(error)")
+            }
+        }
+    }
+
     func testDuplicateDetectionGroupsMatchingMD5AndExistingGames() throws {
         try writeFile("A/Game.nes", contents: "same")
         try writeFile("B/Copy.nes", contents: "same")

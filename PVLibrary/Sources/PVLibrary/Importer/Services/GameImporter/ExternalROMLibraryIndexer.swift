@@ -57,9 +57,12 @@ public struct ExternalROMLibraryIndexer {
     /// Ambiguous extensions are reported unless `systemOverrides` selects one detected system.
     public func index(_ candidates: [ExternalROMCandidate],
                       systemOverrides: [String: String] = [:],
+                      cachedMD5ByRelativePath: [String: String] = [:],
                       progress: Progress? = nil,
                       onCandidateStarted: (@Sendable (ExternalROMCandidate, Int, Int) async -> Void)? = nil,
                       onHashProgress: (@Sendable (ExternalROMCandidate, Int, Int, Int64, Int64) async -> Void)? = nil,
+                      onHashCompleted: (@Sendable (ExternalROMCandidate, String) async -> Void)? = nil,
+                      onCandidateIndexed: (@Sendable (ExternalROMCandidate, String, Bool) async -> Void)? = nil,
                       onProgress: (@Sendable (Int, Int) async -> Void)? = nil) async -> ExternalROMIndexReport {
         if let progress, progress.totalUnitCount <= 0 {
             progress.totalUnitCount = Int64(candidates.count)
@@ -98,8 +101,10 @@ public struct ExternalROMLibraryIndexer {
                 nextWorkIndex += 1
                 await onCandidateStarted?(work.candidate, work.ordinal, candidates.count)
                 let hashOperation = self.hashOperation
+                let cachedMD5 = cachedMD5ByRelativePath[work.candidate.relativePath]
                 group.addTask {
                     await Self.hashOutcome(for: work,
+                                           cachedMD5: cachedMD5,
                                            totalCandidates: candidates.count,
                                            progress: progress,
                                            hashOperation: hashOperation,
@@ -120,8 +125,10 @@ public struct ExternalROMLibraryIndexer {
                     nextWorkIndex += 1
                     await onCandidateStarted?(work.candidate, work.ordinal, candidates.count)
                     let hashOperation = self.hashOperation
+                    let cachedMD5 = cachedMD5ByRelativePath[work.candidate.relativePath]
                     group.addTask {
                         await Self.hashOutcome(for: work,
+                                               cachedMD5: cachedMD5,
                                                totalCandidates: candidates.count,
                                                progress: progress,
                                                hashOperation: hashOperation,
@@ -132,10 +139,13 @@ public struct ExternalROMLibraryIndexer {
                 if let md5 = outcome.md5,
                    let systemID = SystemIdentifier(rawValue: outcome.work.systemIdentifier) {
                     do {
-                        if try await databaseService.indexExternalGame(outcome.work.candidate,
-                                                                       systemID: systemID,
-                                                                       contentMD5: md5,
-                                                                       progress: progress) {
+                        await onHashCompleted?(outcome.work.candidate, md5)
+                        let wasAdded = try await databaseService.indexExternalGame(outcome.work.candidate,
+                                                                                   systemID: systemID,
+                                                                                   contentMD5: md5,
+                                                                                   progress: progress)
+                        await onCandidateIndexed?(outcome.work.candidate, md5, wasAdded)
+                        if wasAdded {
                             indexedCount += 1
                         } else {
                             duplicateCount += 1
@@ -167,12 +177,27 @@ public struct ExternalROMLibraryIndexer {
     }
 
     private static func hashOutcome(for work: ExternalROMHashWork,
+                                    cachedMD5: String?,
                                     totalCandidates: Int,
                                     progress: Progress?,
                                     hashOperation: @Sendable (ExternalROMCandidate,
                                                               Progress?,
                                                               @Sendable (Int64, Int64) async -> Void) async throws -> String,
                                     onHashProgress: (@Sendable (ExternalROMCandidate, Int, Int, Int64, Int64) async -> Void)?) async -> ExternalROMHashOutcome {
+        if let cachedMD5 = cachedMD5?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cachedMD5.isEmpty,
+           let scannedModificationDate = work.candidate.modificationDate,
+           let currentValues = try? work.candidate.url.resourceValues(forKeys: [.isRegularFileKey,
+                                                                                .fileSizeKey,
+                                                                                .contentModificationDateKey]),
+           currentValues.isRegularFile == true,
+           Int64(currentValues.fileSize ?? -1) == work.candidate.fileSize,
+           currentValues.contentModificationDate == scannedModificationDate {
+            return ExternalROMHashOutcome(work: work,
+                                          md5: cachedMD5.uppercased(),
+                                          errorMessage: nil,
+                                          wasCancelled: false)
+        }
         do {
             let hash = try await hashOperation(work.candidate, progress) { bytesProcessed, totalBytes in
                 await onHashProgress?(work.candidate, work.ordinal, totalCandidates, bytesProcessed, totalBytes)
@@ -206,6 +231,14 @@ public struct ExternalROMLibraryIndexer {
         guard FileManager.default.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             throw ExternalROMFolderError.unavailable(sourceURL.path)
         }
+        let initialValues = try sourceURL.resourceValues(forKeys: [.isRegularFileKey,
+                                                                   .fileSizeKey,
+                                                                   .contentModificationDateKey])
+        guard initialValues.isRegularFile == true,
+              Int64(initialValues.fileSize ?? -1) == candidate.fileSize,
+              candidate.modificationDate == nil || initialValues.contentModificationDate == candidate.modificationDate else {
+            throw ExternalROMFolderError.unavailable("\(candidate.relativePath) changed after the folder scan. Run Quick scan again.")
+        }
 
         var result: String?
         var lastProgressBucket = -1
@@ -227,6 +260,11 @@ public struct ExternalROMLibraryIndexer {
             }
         }
         guard let result, !result.isEmpty else { throw GameImporterError.couldNotCalculateMD5 }
+        let finalValues = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        guard Int64(finalValues.fileSize ?? -1) == Int64(initialValues.fileSize ?? -1),
+              finalValues.contentModificationDate == initialValues.contentModificationDate else {
+            throw ExternalROMFolderError.unavailable("\(candidate.relativePath) changed while it was being verified. Run Quick scan again.")
+        }
         return result
     }
 

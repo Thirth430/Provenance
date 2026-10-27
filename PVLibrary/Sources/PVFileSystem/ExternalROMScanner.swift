@@ -25,12 +25,18 @@ public struct ExternalROMCandidate: Sendable, Equatable {
     public let relativePath: String
     public let systemIdentifiers: [String]
     public let fileSize: Int64
+    public let modificationDate: Date?
 
-    fileprivate init(url: URL, relativePath: String, systemIdentifiers: [String], fileSize: Int64) {
+    public init(url: URL,
+                relativePath: String,
+                systemIdentifiers: [String],
+                fileSize: Int64,
+                modificationDate: Date? = nil) {
         self.url = url
         self.relativePath = relativePath
         self.systemIdentifiers = systemIdentifiers
         self.fileSize = fileSize
+        self.modificationDate = modificationDate
     }
 }
 
@@ -71,45 +77,61 @@ public enum ExternalROMScanner {
         var candidates: [ExternalROMCandidate] = []
         var issues: [ExternalROMScanIssue] = []
         var visitedFileCount = 0
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isPackageKey, .fileSizeKey]
-        let enumerator = fileManager.enumerator(at: root,
-                                                includingPropertiesForKeys: keys,
-                                                options: [.skipsHiddenFiles, .skipsPackageDescendants],
-                                                errorHandler: { url, error in
-            issues.append(ExternalROMScanIssue(path: url.path, message: error.localizedDescription))
-            return true
-        })
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey]
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        coordinator.coordinate(readingItemAt: root,
+                               options: .withoutChanges,
+                               error: &coordinationError) { coordinatedRoot in
+            let enumerator = fileManager.enumerator(at: coordinatedRoot,
+                                                    includingPropertiesForKeys: keys,
+                                                    options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                                                    errorHandler: { url, error in
+                issues.append(ExternalROMScanIssue(path: url.path, message: error.localizedDescription))
+                return true
+            })
 
-        while let url = enumerator?.nextObject() as? URL {
-            if progress?.isCancelled == true { break }
-            visitedFileCount += 1
-            progress?.completedUnitCount = Int64(visitedFileCount)
-            onProgress?(visitedFileCount)
-
-            do {
-                let values = try url.resourceValues(forKeys: Set(keys))
-                if values.isPackage == true { enumerator?.skipDescendants() }
-                guard values.isRegularFile == true else { continue }
-                let fileExtension = url.pathExtension.lowercased()
-                // Provenance's launch path extracts ZIPs into app-managed save storage for cores
-                // that request it. In-place mode must never make that copy implicitly.
-                if fileExtension == "zip" {
-                    issues.append(ExternalROMScanIssue(path: url.path,
-                                                       message: "ZIP archives are skipped in folder-in-place mode. Use the copy importer to unpack this archive."))
-                    continue
-                }
-                guard let systemIDs = systemsByExtension[fileExtension], !systemIDs.isEmpty else { continue }
+            while let url = enumerator?.nextObject() as? URL {
+                if progress?.isCancelled == true { break }
+                visitedFileCount += 1
+                progress?.completedUnitCount = Int64(visitedFileCount)
+                onProgress?(visitedFileCount)
 
                 let relativePath = url.standardizedFileURL.pathComponents
-                    .dropFirst(root.standardizedFileURL.pathComponents.count)
+                    .dropFirst(coordinatedRoot.standardizedFileURL.pathComponents.count)
                     .joined(separator: "/")
-                candidates.append(ExternalROMCandidate(url: url.standardizedFileURL,
-                                                       relativePath: relativePath,
-                                                       systemIdentifiers: systemIDs.sorted(),
-                                                       fileSize: Int64(values.fileSize ?? 0)))
-            } catch {
-                issues.append(ExternalROMScanIssue(path: url.path, message: error.localizedDescription))
+                let sourceURL = root.appendingPathComponent(relativePath).standardizedFileURL
+                do {
+                    let values = try url.resourceValues(forKeys: Set(keys))
+                    if values.isPackage == true { enumerator?.skipDescendants() }
+                    guard values.isRegularFile == true else { continue }
+                    let fileExtension = url.pathExtension.lowercased()
+                    // Provenance's launch path extracts ZIPs into app-managed save storage for cores
+                    // that request it. In-place mode must never make that copy implicitly.
+                    if fileExtension == "zip" {
+                        issues.append(ExternalROMScanIssue(path: sourceURL.path,
+                                                           message: "ZIP archives are skipped in folder-in-place mode. Use the copy importer to unpack this archive."))
+                        continue
+                    }
+                    guard let systemIDs = systemsByExtension[fileExtension], !systemIDs.isEmpty else { continue }
+
+                    candidates.append(ExternalROMCandidate(url: sourceURL,
+                                                           relativePath: relativePath,
+                                                           systemIdentifiers: systemIDs.sorted(),
+                                                           fileSize: Int64(values.fileSize ?? 0),
+                                                           modificationDate: values.contentModificationDate))
+                } catch {
+                    issues.append(ExternalROMScanIssue(path: sourceURL.path, message: error.localizedDescription))
+                }
             }
+        }
+        if let coordinationError {
+            throw ExternalROMFolderError.unavailable(coordinationError.localizedDescription)
+        }
+
+        var rootIsDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: root.path, isDirectory: &rootIsDirectory), rootIsDirectory.boolValue else {
+            throw ExternalROMFolderError.unavailable(root.path)
         }
 
         return ExternalROMScanResult(candidates: candidates.sorted { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending },

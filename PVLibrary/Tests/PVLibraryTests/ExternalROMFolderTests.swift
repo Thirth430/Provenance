@@ -38,6 +38,18 @@ final class ExternalROMFolderTests: XCTestCase {
         XCTAssertEqual(store.load()?.version, ExternalROMFolder.currentVersion)
     }
 
+    func testMigratesOlderFolderSelectionAndKeepsItsNewIdentityStable() throws {
+        let store = ExternalROMFolderStore(defaults: defaults, key: "externalROMFolder")
+        let legacy = Data("{\"version\":1,\"bookmark\":\"AQID\",\"displayName\":\"USB Games\",\"selectedAt\":0}".utf8)
+        defaults.set(legacy, forKey: "externalROMFolder")
+
+        let firstLoad = try XCTUnwrap(store.load())
+        let secondLoad = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(firstLoad.version, ExternalROMFolder.currentVersion)
+        XCTAssertEqual(firstLoad.identifier, secondLoad.identifier)
+    }
+
     func testOpenCreatesAnAccessSessionForSelectedFolder() throws {
         let store = ExternalROMFolderStore(defaults: defaults, key: "externalROMFolder")
         let manager = ExternalROMFolderAccessManager(store: store)

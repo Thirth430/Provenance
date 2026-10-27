@@ -142,6 +142,14 @@ class GameImporterDatabaseService : GameImporterDatabaseServicing {
         guard FileManager.default.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             throw ExternalROMFolderError.unavailable(sourceURL.path)
         }
+        let currentValues = try sourceURL.resourceValues(forKeys: [.isRegularFileKey,
+                                                                   .fileSizeKey,
+                                                                   .contentModificationDateKey])
+        guard currentValues.isRegularFile == true,
+              Int64(currentValues.fileSize ?? -1) == candidate.fileSize,
+              candidate.modificationDate == nil || currentValues.contentModificationDate == candidate.modificationDate else {
+            throw ExternalROMFolderError.unavailable("\(candidate.relativePath) changed after verification. Run Quick scan again.")
+        }
         if Task.isCancelled || progress?.isCancelled == true { throw CancellationError() }
 
         guard !contentMD5.isEmpty else { throw GameImporterError.couldNotCalculateMD5 }

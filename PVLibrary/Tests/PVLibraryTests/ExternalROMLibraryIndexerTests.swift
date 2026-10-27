@@ -100,6 +100,24 @@ final class ExternalROMLibraryIndexerTests: XCTestCase {
         XCTAssertEqual(report.processedCount, 3)
     }
 
+    func testReusesCachedHashWhenFileFingerprintIsUnchanged() async throws {
+        try write("Cached.nes")
+        let candidate = try scan(extensions: ["nes"])
+        let probe = HashCallProbe()
+        let indexer = ExternalROMLibraryIndexer(databaseService: database, hashOperation: { _, _, _ in
+            await probe.recordCall()
+            return "unexpected-new-hash"
+        })
+
+        let report = await indexer.index([candidate],
+                                         cachedMD5ByRelativePath: [candidate.relativePath: "cached-md5"])
+
+        let hashCallCount = await probe.callCount
+        XCTAssertEqual(hashCallCount, 0)
+        XCTAssertEqual(report.indexedCount, 1)
+        XCTAssertTrue(database.indexedSystems.contains(.NES))
+    }
+
     private func makeIndexer() -> ExternalROMLibraryIndexer {
         ExternalROMLibraryIndexer(databaseService: database, hashOperation: { candidate, _, onProgress in
             if candidate.fileSize > 0 { await onProgress(candidate.fileSize, candidate.fileSize) }
@@ -162,5 +180,13 @@ private actor HashConcurrencyProbe {
 
     func leave() {
         active -= 1
+    }
+}
+
+private actor HashCallProbe {
+    private(set) var callCount = 0
+
+    func recordCall() {
+        callCount += 1
     }
 }

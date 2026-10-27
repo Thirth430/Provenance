@@ -215,7 +215,7 @@ private struct ExternalROMCatalogRow: View {
 
 @MainActor
 @Observable
-private final class ExternalROMLibrarySettingsModel {
+final class ExternalROMLibrarySettingsModel {
     static let shared = ExternalROMLibrarySettingsModel()
     private static let catalogSaveInterval = 8
 
@@ -477,6 +477,9 @@ private final class ExternalROMLibrarySettingsModel {
     }
 
     private func recordHash(candidate: ExternalROMCandidate, md5: String) async {
+        guard isBusy else { return }
+        progressMessage = "Reading complete. Registering \(candidate.url.lastPathComponent) in the library…"
+        progressFraction = nil
         updateEntry(candidate.relativePath) { entry in
             if let existingMD5 = entry.contentMD5, existingMD5.caseInsensitiveCompare(md5) != .orderedSame {
                 entry.isIndexed = false
@@ -497,6 +500,11 @@ private final class ExternalROMLibrarySettingsModel {
             entry.lastError = nil
         }
         await saveCatalogPeriodically()
+        if wasAdded {
+            // Realm-backed console views can show each game as soon as it is committed,
+            // instead of waiting for metadata lookup or the rest of a large batch.
+            NotificationCenter.default.post(name: .gameLibraryDidUpdate, object: nil)
+        }
         if pendingLaunchPath == candidate.relativePath {
             pendingLaunchPath = nil
             AppState.shared.appOpenAction = .openMD5(md5)
@@ -589,10 +597,6 @@ private final class ExternalROMLibrarySettingsModel {
             : "Found \(discoveredCount) games. Added \(report.indexedCount); skipped \(report.duplicateCount) duplicates. " +
                 "\(issues.count) issue(s). Metadata and cover art are looked up after games are added."
         endBackgroundTask()
-        if report.indexedCount > 0 {
-            // Refresh library views once after the batch, without invoking the full ROM rescan.
-            NotificationCenter.default.post(name: .gameLibraryDidUpdate, object: nil)
-        }
     }
 
     private func fail(_ message: String) {
@@ -609,6 +613,47 @@ private final class ExternalROMLibrarySettingsModel {
         guard backgroundTaskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
+    }
+}
+
+/// Main library destination for name-only discoveries, including systems with no imported games yet.
+@MainActor
+struct ExternalROMCatalogLibraryView: View {
+    @State private var model = ExternalROMLibrarySettingsModel.shared
+
+    var body: some View {
+        List {
+            if let folderName = model.folderName {
+                Section {
+                    Label("\(folderName) · Quick scan", systemImage: "externaldrive")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Text("These games are listed from file names. They are not fully verified or added until you play one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if model.isBusy {
+                Section {
+                    HStack {
+                        ProgressView()
+                        Text(model.progressMessage).font(.caption)
+                        Spacer()
+                        Button("Cancel", role: .cancel) { model.cancel() }
+                    }
+                }
+            }
+            Section("External folder games") {
+                ForEach(model.catalogEntries) { entry in
+                    ExternalROMCatalogRow(entry: entry, isBusy: model.isBusy) {
+                        model.verifyAndLaunch(entry)
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(RetroTheme.retroBackground)
+        .navigationTitle("External Games")
     }
 }
 

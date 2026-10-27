@@ -80,6 +80,9 @@ struct ConsolesWrapperView: SwiftUI.View {
     @State private var gameInfoState: GameInfoState?
     @ObservedResults(PVSystem.self) private var consoles: Results<PVSystem>
     @ObservedObject private var themeManager = ThemeManager.shared
+#if os(iOS)
+    @State private var externalROMModel = ExternalROMLibrarySettingsModel.shared
+#endif
 
     /// Track if view is currently visible
     @State private var isVisible: Bool = false
@@ -168,7 +171,9 @@ struct ConsolesWrapperView: SwiftUI.View {
                 RetroDividerView()
                     .shadow(color: .retroPink.opacity(0.55), radius: 2, x: 0, y: 1)
 
-                if bootupStateManager.isBootupCompleted && (consoles.isEmpty || (consoles.count == 1 && consoles.first!.identifier == SystemIdentifier.RetroArch.rawValue)) {
+                if bootupStateManager.isBootupCompleted &&
+                    (consoles.isEmpty || (consoles.count == 1 && consoles.first!.identifier == SystemIdentifier.RetroArch.rawValue)) &&
+                    !hasExternalCatalog {
                     noConsolesView
                 } else if !bootupStateManager.isBootupCompleted {
                     // Still loading — show nothing to avoid a jarring empty-state flash on launch
@@ -291,7 +296,8 @@ struct ConsolesWrapperView: SwiftUI.View {
     /// Ensures the selected tab and lazy caches still reference valid consoles.
     private func reconcileSelectedTab() {
         let validConsoleIDs = Set(cachedSortedConsoles.map(\.identifier))
-        let alwaysValidTabs = Set(["home", "debug", "test"])
+        var alwaysValidTabs = Set(["home", "debug", "test"])
+        if hasExternalCatalog { alwaysValidTabs.insert("external-roms") }
 
         loadedConsoleIDs.formIntersection(validConsoleIDs)
         if !validConsoleIDs.contains(previousTab) {
@@ -370,6 +376,14 @@ struct ConsolesWrapperView: SwiftUI.View {
 
     var forceRetroarchConsole: Bool {
         return true
+    }
+
+    private var hasExternalCatalog: Bool {
+#if os(iOS)
+        !externalROMModel.catalogEntries.isEmpty
+#else
+        false
+#endif
     }
 
     @ViewBuilder
@@ -481,6 +495,16 @@ struct ConsolesWrapperView: SwiftUI.View {
                 Label("Home", systemImage: "house")
             }
             .tag("home")
+
+#if os(iOS)
+            if hasExternalCatalog {
+                ExternalROMCatalogLibraryView()
+                    .tabItem {
+                        Label("External", systemImage: "externaldrive")
+                    }
+                    .tag("external-roms")
+            }
+#endif
 
             consolesList
         }
